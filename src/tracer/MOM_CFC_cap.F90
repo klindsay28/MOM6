@@ -374,9 +374,8 @@ subroutine CFC_cap_column_physics(h_old, h_new, ea, eb, fluxes, dt, G, GV, US, C
 
       do m=1,NTR
         call KPP_NonLocalTransport(KPP_CSp, G, GV, h_old, nonLocalTrans, &
-                                   CS%CFC_data(m)%sfc_flux(:,:), dt, CS%diag, &
-                                   CS%CFC_data(m)%tr_ptr, CS%CFC_data(m)%conc(:,:,:), &
-                                   flux_scale=flux_scale)
+                                   CS%CFC_data(m)%sfc_flux(:,:), dt, CS%CFC_data(m)%tr_ptr, &
+                                   CS%CFC_data(m)%conc(:,:,:), flux_scale=flux_scale)
       enddo
     endif
   endif

@@ -38,8 +38,6 @@ public :: KPP_init
 public :: KPP_compute_BLD
 public :: KPP_calculate
 public :: KPP_end
-public :: KPP_NonLocalTransport_temp
-public :: KPP_NonLocalTransport_saln
 public :: KPP_NonLocalTransport
 public :: KPP_get_BLD
 
@@ -848,8 +846,7 @@ subroutine KPP_calculate(CS, G, GV, US, h, uStar, buoyFlux, Kt, Ks, Kv, &
         endif
       endif
 
-      ! we apply nonLocalTrans in subroutines
-      ! KPP_NonLocalTransport_temp and KPP_NonLocalTransport_saln
+      ! we apply nonLocalTrans in subroutine KPP_NonLocalTransport
       nonLocalTransHeat(i,j,:)   = nonLocalTrans(:,1) ! temperature
       nonLocalTransScalar(i,j,:) = nonLocalTrans(:,2) ! salinity
 
@@ -1415,7 +1412,7 @@ end subroutine KPP_get_BLD
 
 !> Apply KPP non-local transport of surface fluxes for a given tracer
 subroutine KPP_NonLocalTransport(CS, G, GV, h, nonLocalTrans, surfFlux, &
-                                 dt, diag, tr_ptr, scalar, flux_scale)
+                                 dt, tr_ptr, scalar, flux_scale)
   type(KPP_CS),                               intent(in)    :: CS            !< Control structure
   type(ocean_grid_type),                      intent(in)    :: G             !< Ocean grid
   type(verticalGrid_type),                    intent(in)    :: GV            !< Ocean vertical grid
@@ -1424,7 +1421,6 @@ subroutine KPP_NonLocalTransport(CS, G, GV, h, nonLocalTrans, surfFlux, &
   real, dimension(SZI_(G),SZJ_(G)),           intent(in)    :: surfFlux      !< Surface flux of scalar
                                                                         !! [conc H T-1 ~> conc m s-1 or conc kg m-2 s-1]
   real,                                       intent(in)    :: dt            !< Time-step [T ~> s]
-  type(diag_ctrl), target,                    intent(in)    :: diag          !< Diagnostics
   type(tracer_type), pointer,                 intent(in)    :: tr_ptr        !< tracer_type has diagnostic ids on it
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(inout) :: scalar        !< Scalar (scalar units [conc])
   real, optional,                             intent(in)    :: flux_scale    !< Scale factor to get surfFlux
@@ -1445,7 +1441,7 @@ subroutine KPP_NonLocalTransport(CS, G, GV, h, nonLocalTrans, surfFlux, &
   endif
 
   ! Post surface flux diagnostic
-  if (tr_ptr%id_net_surfflux > 0) call post_data(tr_ptr%id_net_surfflux, surfFlux_loc(:,:), diag)
+  if (tr_ptr%id_net_surfflux > 0) call post_data(tr_ptr%id_net_surfflux, surfFlux_loc(:,:), CS%diag)
 
   ! Only continue if we are applying the nonlocal tendency
   ! or the nonlocal tendency diagnostic has been requested
@@ -1464,7 +1460,7 @@ subroutine KPP_NonLocalTransport(CS, G, GV, h, nonLocalTrans, surfFlux, &
         scalar(i,j,k) = scalar(i,j,k) + dt * dtracer(i,j,k)
       enddo ; enddo ; enddo
     endif
-    if (tr_ptr%id_NLT_tendency > 0) call post_data(tr_ptr%id_NLT_tendency, dtracer,  diag)
+    if (tr_ptr%id_NLT_tendency > 0) call post_data(tr_ptr%id_NLT_tendency, dtracer, CS%diag)
 
   endif
 
@@ -1475,50 +1471,10 @@ subroutine KPP_NonLocalTransport(CS, G, GV, h, nonLocalTrans, surfFlux, &
       ! Here dtracer has units of [Q R Z T-1 ~> W m-2].
       dtracer(i,j,k) = (nonLocalTrans(i,j,k) - nonLocalTrans(i,j,k+1)) * surfFlux_loc(i,j)
     enddo ; enddo ; enddo
-    call post_data(tr_ptr%id_NLT_budget, dtracer(:,:,:), diag)
+    call post_data(tr_ptr%id_NLT_budget, dtracer(:,:,:), CS%diag)
   endif
 
 end subroutine KPP_NonLocalTransport
-
-
-!> Apply KPP non-local transport of surface fluxes for temperature.
-subroutine KPP_NonLocalTransport_temp(CS, G, GV, h, nonLocalTrans, surfFlux, dt, tr_ptr, scalar, C_p)
-  type(KPP_CS),                               intent(in)    :: CS     !< Control structure
-  type(ocean_grid_type),                      intent(in)    :: G      !< Ocean grid
-  type(verticalGrid_type),                    intent(in)    :: GV     !< Ocean vertical grid
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)    :: h      !< Layer/level thickness [H ~> m or kg m-2]
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1), intent(in)   :: nonLocalTrans !< Non-local transport [nondim]
-  real, dimension(SZI_(G),SZJ_(G)),           intent(in)    :: surfFlux  !< Surface flux of temperature
-                                                                      !! [C H T-1 ~> degC m s-1 or degC kg m-2 s-1]
-  real,                                       intent(in)    :: dt     !< Time-step [T ~> s]
-  type(tracer_type), pointer,                 intent(in)    :: tr_ptr !< tracer_type has diagnostic ids on it
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(inout) :: scalar !< temperature [C ~> degC]
-  real,                                       intent(in)    :: C_p    !< Seawater specific heat capacity
-                                                                      !! [Q C-1 ~> J kg-1 degC-1]
-
-  call KPP_NonLocalTransport(CS, G, GV, h, nonLocalTrans, surfFlux, dt, CS%diag, &
-                             tr_ptr, scalar)
-
-end subroutine KPP_NonLocalTransport_temp
-
-
-!> Apply KPP non-local transport of surface fluxes for salinity.
-subroutine KPP_NonLocalTransport_saln(CS, G, GV, h, nonLocalTrans, surfFlux, dt, tr_ptr, scalar)
-  type(KPP_CS),                               intent(in)    :: CS            !< Control structure
-  type(ocean_grid_type),                      intent(in)    :: G             !< Ocean grid
-  type(verticalGrid_type),                    intent(in)    :: GV            !< Ocean vertical grid
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)    :: h             !< Layer/level thickness [H ~> m or kg m-2]
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1), intent(in)   :: nonLocalTrans !< Non-local transport [nondim]
-  real, dimension(SZI_(G),SZJ_(G)),           intent(in)    :: surfFlux      !< Surface flux of salt
-                                                                             !! [S H T-1 ~> ppt m s-1 or ppt kg m-2 s-1]
-  real,                                       intent(in)    :: dt            !< Time-step [T ~> s]
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(inout) :: scalar        !< Salinity [S ~> ppt]
-  type(tracer_type), pointer,                 intent(in)    :: tr_ptr        !< tracer_type has diagnostic ids on it
-
-  call KPP_NonLocalTransport(CS, G, GV, h, nonLocalTrans, surfFlux, dt, CS%diag, &
-                             tr_ptr, scalar)
-
-end subroutine KPP_NonLocalTransport_saln
 
 
 !> Clear pointers, deallocate memory
